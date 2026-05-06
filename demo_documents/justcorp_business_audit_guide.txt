@@ -1,0 +1,38 @@
+JustCorp Labs Business Audit Guide
+
+Purpose of the Business Audit
+
+The JustCorp Labs business audit helps identify where a business can improve its digital presence, customer journey, data visibility, and operational efficiency.
+
+The audit is designed to find practical opportunities for growth.
+
+Audit Areas
+
+1. Website and Online Presence
+The audit checks whether the business has a professional website, whether the website is easy to understand, whether services are clearly explained, and whether customers know how to contact the business.
+
+2. Customer Journey
+The audit reviews how a customer discovers the business, understands the offer, asks questions, and decides to buy or book a service.
+
+3. Lead Capture
+The audit checks whether the business has a way to collect customer leads, contact details, inquiries, or booking requests.
+
+4. Follow-Up Process
+The audit reviews whether the business follows up with potential customers consistently. Poor follow-up can lead to lost sales.
+
+5. Data and Reporting
+The audit checks whether the business tracks important metrics such as sales, customers, profit, stock, inquiries, and marketing performance.
+
+6. Automation Opportunities
+The audit identifies repetitive tasks that could be automated. Examples include follow-up messages, email replies, report generation, data entry, and reminders.
+
+7. AI Opportunities
+The audit checks whether the business could benefit from AI tools such as a knowledge base chatbot, customer support assistant, AI sales agent, or document assistant.
+
+Audit Output
+
+After the audit, JustCorp Labs can provide a short recommendation report. The report may include website improvements, dashboard ideas, automation opportunities, AI use cases, and suggested next steps.
+
+Goal of the Audit
+
+The goal is not just to find problems. The goal is to show the business how better systems can help attract customers, save time, improve decisions, and support growth.
