@@ -1,30 +1,83 @@
-from typing import List, Dict, Any
+import json
+import math
 from pathlib import Path
-
-import chromadb
+from typing import Any, Dict, List
 
 from app.config import settings
 
 
-class VectorStore:
+class LightweightVectorStore:
     """
-    Handles local vector storage using ChromaDB.
+    Lightweight JSON-based vector store for free deployment.
 
-    ChromaDB stores:
-    - chunk text
-    - embedding vectors
-    - metadata such as filename and chunk number
+    Why this replaces ChromaDB:
+    - ChromaDB can be too heavy for Render Free
+    - this stores document chunks and embeddings in a small JSON file
+    - cosine similarity is computed directly in Python
+
+    This is suitable for small/medium portfolio demo documents.
+    For production with many documents, move back to ChromaDB, Qdrant,
+    Pinecone, Supabase Vector, or another proper vector database.
     """
 
     def __init__(self):
-        chroma_path = Path(settings.CHROMA_DB_PATH)
-        chroma_path.mkdir(parents=True, exist_ok=True)
+        self.storage_dir = Path(getattr(settings, "VECTOR_STORE_DIR", "vector_store_data"))
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
 
-        self.client = chromadb.PersistentClient(path=str(chroma_path))
+        self.storage_file = self.storage_dir / "documents.json"
 
-        self.collection = self.client.get_or_create_collection(
-            name="justcorp_knowledge_base"
-        )
+        if not self.storage_file.exists():
+            self._save_records([])
+
+    def _load_records(self) -> List[Dict[str, Any]]:
+        """
+        Load all stored chunk records from disk.
+        """
+
+        try:
+            with self.storage_file.open("r", encoding="utf-8") as file:
+                return json.load(file)
+        except Exception:
+            return []
+
+    def _save_records(self, records: List[Dict[str, Any]]) -> None:
+        """
+        Save all chunk records to disk.
+        """
+
+        with self.storage_file.open("w", encoding="utf-8") as file:
+            json.dump(records, file, ensure_ascii=False, indent=2)
+
+    def _cosine_similarity(
+        self,
+        vector_a: List[float],
+        vector_b: List[float],
+    ) -> float:
+        """
+        Compute cosine similarity between two vectors.
+        """
+
+        if not vector_a or not vector_b:
+            return 0.0
+
+        length = min(len(vector_a), len(vector_b))
+
+        dot_product = 0.0
+        norm_a = 0.0
+        norm_b = 0.0
+
+        for index in range(length):
+            value_a = float(vector_a[index])
+            value_b = float(vector_b[index])
+
+            dot_product += value_a * value_b
+            norm_a += value_a * value_a
+            norm_b += value_b * value_b
+
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+
+        return dot_product / (math.sqrt(norm_a) * math.sqrt(norm_b))
 
     def add_document_chunks(
         self,
@@ -32,120 +85,110 @@ class VectorStore:
         embeddings: List[List[float]],
     ) -> int:
         """
-        Add document chunks and their embeddings to ChromaDB.
+        Store document chunks and their embeddings.
         """
-
-        if not chunks:
-            return 0
 
         if len(chunks) != len(embeddings):
             raise ValueError("Number of chunks must match number of embeddings.")
 
-        ids = []
-        documents = []
-        metadatas = []
+        records = self._load_records()
 
-        for chunk in chunks:
-            chunk_id = f"{chunk['document_id']}_chunk_{chunk['chunk_number']}"
+        for chunk, embedding in zip(chunks, embeddings):
+            record = {
+                "document_id": chunk.get("document_id"),
+                "filename": chunk.get("filename"),
+                "chunk_number": chunk.get("chunk_number"),
+                "text": chunk.get("text"),
+                "embedding": embedding,
+            }
 
-            ids.append(chunk_id)
-            documents.append(chunk["text"])
-            metadatas.append(
-                {
-                    "document_id": chunk["document_id"],
-                    "filename": chunk["filename"],
-                    "chunk_number": chunk["chunk_number"],
-                }
-            )
+            records.append(record)
 
-        self.collection.add(
-            ids=ids,
-            documents=documents,
-            embeddings=embeddings,
-            metadatas=metadatas,
-        )
+        self._save_records(records)
 
         return len(chunks)
 
-    def search_similar_chunks(
+    def search_similar(
         self,
         query_embedding: List[float],
         top_k: int = 4,
     ) -> List[Dict[str, Any]]:
         """
-        Search ChromaDB for chunks most similar to the user's question.
+        Search for the most similar document chunks.
         """
 
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            include=["documents", "metadatas", "distances"],
-        )
+        records = self._load_records()
 
-        documents = results.get("documents", [[]])[0]
-        metadatas = results.get("metadatas", [[]])[0]
-        distances = results.get("distances", [[]])[0]
+        scored_results = []
 
-        matched_chunks = []
+        for record in records:
+            embedding = record.get("embedding", [])
 
-        for document_text, metadata, distance in zip(documents, metadatas, distances):
-            matched_chunks.append(
+            similarity = self._cosine_similarity(
+                query_embedding,
+                embedding,
+            )
+
+            distance = 1.0 - similarity
+
+            scored_results.append(
                 {
-                    "document_id": metadata.get("document_id"),
-                    "filename": metadata.get("filename"),
-                    "chunk_number": metadata.get("chunk_number"),
-                    "text": document_text,
+                    "document_id": record.get("document_id"),
+                    "filename": record.get("filename"),
+                    "chunk_number": record.get("chunk_number"),
+                    "text": record.get("text"),
                     "distance": distance,
+                    "similarity": similarity,
                 }
             )
 
-        return matched_chunks
+        scored_results.sort(key=lambda item: item["similarity"], reverse=True)
+
+        return scored_results[:top_k]
 
     def list_documents(self) -> List[Dict[str, Any]]:
         """
-        Return a simple grouped list of uploaded documents from ChromaDB.
+        List unique uploaded documents.
         """
 
-        results = self.collection.get(include=["metadatas"])
+        records = self._load_records()
 
-        documents = {}
+        documents_by_id: Dict[str, Dict[str, Any]] = {}
 
-        for metadata in results.get("metadatas", []):
-            if not metadata:
+        for record in records:
+            document_id = record.get("document_id")
+
+            if not document_id:
                 continue
 
-            document_id = metadata.get("document_id")
-            filename = metadata.get("filename")
-
-            if document_id not in documents:
-                documents[document_id] = {
+            if document_id not in documents_by_id:
+                documents_by_id[document_id] = {
                     "document_id": document_id,
-                    "filename": filename,
-                    "chunks": 0,
+                    "filename": record.get("filename"),
+                    "chunks_count": 0,
                 }
 
-            documents[document_id]["chunks"] += 1
+            documents_by_id[document_id]["chunks_count"] += 1
 
-        return list(documents.values())
+        return list(documents_by_id.values())
 
     def delete_document(self, document_id: str) -> int:
         """
-        Delete all chunks linked to a specific document_id.
+        Delete all chunks belonging to one document.
         """
 
-        existing = self.collection.get(
-            where={"document_id": document_id},
-            include=["metadatas"],
-        )
+        records = self._load_records()
 
-        ids = existing.get("ids", [])
+        remaining_records = [
+            record for record in records
+            if record.get("document_id") != document_id
+        ]
 
-        if not ids:
-            return 0
+        chunks_deleted = len(records) - len(remaining_records)
 
-        self.collection.delete(ids=ids)
+        self._save_records(remaining_records)
 
-        return len(ids)
+        return chunks_deleted
 
 
-vector_store = VectorStore()
+vector_store = LightweightVectorStore()

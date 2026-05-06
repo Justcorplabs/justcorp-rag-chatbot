@@ -8,18 +8,26 @@ __pycache__/
 venv/
 env/
 ENV/
+backend/.venv/
 
 # Backend environment
+.env
 backend/.env
 
 # Frontend environment
 frontend/.env
 
-# Uploads and local vector DB
+# Uploads and local storage
 backend/uploads/
 backend/chroma_db/
+backend/.chroma/
+backend/vector_store_data/
+uploads/
+chroma_db/
+vector_store_data/
 
 # Node
+node_modules/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
