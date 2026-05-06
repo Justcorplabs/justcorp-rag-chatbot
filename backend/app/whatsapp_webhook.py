@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -11,6 +12,12 @@ from app.chatbot_service import get_chatbot_answer
 router = APIRouter(
     prefix="/whatsapp",
     tags=["WhatsApp"],
+)
+
+
+JUSTCORP_WEBSITE_URL = os.getenv(
+    "JUSTCORP_WEBSITE_URL",
+    "https://justcorplabs.netlify.app",
 )
 
 
@@ -93,37 +100,86 @@ def extract_whatsapp_messages(payload: Dict[str, Any]) -> List[Dict[str, Optiona
     return extracted_messages
 
 
+def should_include_website_link(user_text: str) -> bool:
+    """
+    Decide whether to include a website link in the WhatsApp reply.
+
+    The website link is useful when users ask about:
+    - services
+    - contact details
+    - website
+    - pricing
+    - booking
+    - demos
+    - business help
+    """
+
+    if not user_text:
+        return False
+
+    text = user_text.lower()
+
+    website_keywords = [
+        "website",
+        "site",
+        "link",
+        "contact",
+        "services",
+        "offer",
+        "pricing",
+        "price",
+        "cost",
+        "demo",
+        "book",
+        "consultation",
+        "business",
+        "justcorp",
+        "justcorp labs",
+        "more information",
+    ]
+
+    return any(keyword in text for keyword in website_keywords)
+
+
 def format_whatsapp_answer(
     sender_name: str,
     answer: str,
     sources: List[Dict[str, Any]],
+    include_website_link: bool = False,
 ) -> str:
     """
     Format the RAG answer for WhatsApp.
 
-    This prevents the raw Python dictionary from being sent to the user.
+    This keeps the answer clean and adds a website call-to-action when useful.
     """
 
     greeting = f"Hi {sender_name}, this is JustCorp Labs AI Assistant."
 
-    if not sources:
-        return f"{greeting}\n\n{answer}"
+    message_parts = [
+        greeting,
+        answer,
+    ]
 
-    source_lines = []
+    if sources:
+        source_lines = []
 
-    for source in sources[:3]:
-        filename = source.get("filename", "Uploaded document")
-        chunk_number = source.get("chunk_number", "N/A")
-        source_lines.append(f"- {filename} | Chunk {chunk_number}")
+        for source in sources[:3]:
+            filename = source.get("filename", "Uploaded document")
+            chunk_number = source.get("chunk_number", "N/A")
+            source_lines.append(f"- {filename} | Chunk {chunk_number}")
 
-    sources_text = "\n".join(source_lines)
+        sources_text = "\n".join(source_lines)
 
-    return (
-        f"{greeting}\n\n"
-        f"{answer}\n\n"
-        f"Sources used:\n"
-        f"{sources_text}"
-    )
+        message_parts.append(
+            f"Sources used:\n{sources_text}"
+        )
+
+    if include_website_link:
+        message_parts.append(
+            f"To learn more or contact us, visit:\n{JUSTCORP_WEBSITE_URL}"
+        )
+
+    return "\n\n".join(message_parts)
 
 
 @router.post("/webhook")
@@ -170,7 +226,8 @@ async def receive_whatsapp_webhook(payload: dict):
         if message_type != "text" or not user_text:
             reply_text = (
                 "Hi, this is JustCorp Labs AI Assistant.\n\n"
-                "Please send a text question so I can search the knowledge base for you."
+                "Please send a text question so I can search the knowledge base for you.\n\n"
+                f"You can also visit our website here:\n{JUSTCORP_WEBSITE_URL}"
             )
         else:
             chatbot_result = get_chatbot_answer(
@@ -189,6 +246,7 @@ async def receive_whatsapp_webhook(payload: dict):
                 sender_name=sender_name,
                 answer=answer,
                 sources=sources,
+                include_website_link=should_include_website_link(user_text),
             )
 
         try:
