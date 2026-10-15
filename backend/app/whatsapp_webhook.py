@@ -1,16 +1,16 @@
 import os
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 
 from app.config import settings
-from app.whatsapp_client import whatsapp_client
-from app.chatbot_service import get_chatbot_answer
+from app.auth import require_admin
 
 
 router = APIRouter(
     prefix="/whatsapp",
+    dependencies=[Depends(require_admin)],
     tags=["WhatsApp"],
 )
 
@@ -194,6 +194,9 @@ async def receive_whatsapp_webhook(payload: dict):
     - We send the generated answer back to WhatsApp
     """
 
+    from app.whatsapp_client import whatsapp_client
+    from app.chatbot_service import get_chatbot_answer
+
     print("Incoming WhatsApp webhook payload:", payload)
 
     parsed_messages = extract_whatsapp_messages(payload)
@@ -289,6 +292,8 @@ def send_test_whatsapp_message(request: WhatsAppSendTestRequest):
     """
     Send a test WhatsApp message using Meta WhatsApp Cloud API.
     """
+
+    from app.whatsapp_client import whatsapp_client
 
     try:
         result = whatsapp_client.send_text_message(

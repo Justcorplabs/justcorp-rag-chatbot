@@ -2,16 +2,11 @@ import shutil
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.document_loader import extract_text_from_pdf, clean_extracted_text
-from app.chunker import split_text_into_chunks
-from app.embeddings import embedding_model
-from app.vector_store import vector_store
-from app.rag_pipeline import rag_pipeline
-from app.llm_client import llm_client
+from app.auth import require_user, require_admin
 from app.models import (
     DocumentUploadResponse,
     DocumentsListResponse,
@@ -26,6 +21,7 @@ from app.models import (
 
 
 app = FastAPI(
+    docs_url=None, redoc_url=None, openapi_url=None,
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="Backend API for the JustCorp Labs AI Knowledge Base Chatbot.",
@@ -52,7 +48,6 @@ if settings.ENABLE_WHATSAPP_ROUTES:
 
 
 UPLOAD_DIR = Path(settings.UPLOAD_DIR)
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def build_sources(retrieved_chunks):
@@ -77,28 +72,25 @@ def build_sources(retrieved_chunks):
 
 @app.get("/")
 def root():
-    return {
-        "message": "Welcome to the JustCorp Labs AI Knowledge Base API",
-        "docs": "/docs",
-        "health": "/health",
-    }
+    return {"status": "ok"}
 
 
 @app.get("/health")
 def health_check():
-    return {
-        "status": "ok",
-        "message": "JustCorp Labs AI Knowledge Base API is running",
-        "version": settings.APP_VERSION,
-    }
+    return {"status": "ok"}
 
 
-@app.post("/upload-document", response_model=DocumentUploadResponse)
+@app.post("/upload-document", dependencies=[Depends(require_admin)], response_model=DocumentUploadResponse)
 async def upload_document(file: UploadFile = File(...)):
     """
     Upload a PDF document, extract text, split into chunks,
     generate embeddings, and store chunks in ChromaDB.
     """
+
+    from app.document_loader import extract_text_from_pdf, clean_extracted_text
+    from app.chunker import split_text_into_chunks
+    from app.embeddings import embedding_model
+    from app.vector_store import vector_store
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file uploaded.")
@@ -119,6 +111,7 @@ async def upload_document(file: UploadFile = File(...)):
     saved_path = UPLOAD_DIR / saved_filename
 
     try:
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         with saved_path.open("wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
@@ -197,22 +190,26 @@ async def upload_document(file: UploadFile = File(...)):
         await file.close()
 
 
-@app.get("/documents", response_model=DocumentsListResponse)
+@app.get("/documents", dependencies=[Depends(require_user)], response_model=DocumentsListResponse)
 def get_documents():
     """
     List all uploaded documents currently stored in ChromaDB.
     """
+
+    from app.vector_store import vector_store
 
     documents = vector_store.list_documents()
 
     return DocumentsListResponse(documents=documents)
 
 
-@app.delete("/documents/{document_id}", response_model=DeleteDocumentResponse)
+@app.delete("/documents/{document_id}", dependencies=[Depends(require_admin)], response_model=DeleteDocumentResponse)
 def delete_document(document_id: str):
     """
     Delete a document's chunks from ChromaDB.
     """
+
+    from app.vector_store import vector_store
 
     chunks_deleted = vector_store.delete_document(document_id=document_id)
 
@@ -229,7 +226,7 @@ def delete_document(document_id: str):
     )
 
 
-@app.post("/search", response_model=SearchResponse)
+@app.post("/search", dependencies=[Depends(require_user)], response_model=SearchResponse)
 def search_documents(request: SearchRequest):
     """
     Search uploaded documents and return the most relevant chunks.
@@ -243,6 +240,8 @@ def search_documents(request: SearchRequest):
             status_code=400,
             detail="Question cannot be empty.",
         )
+
+    from app.rag_pipeline import rag_pipeline
 
     results = rag_pipeline.retrieve_context(
         question=question,
@@ -275,6 +274,8 @@ def test_answer_generation(request: TestAnswerRequest):
             detail="Question cannot be empty.",
         )
 
+    from app.rag_pipeline import rag_pipeline
+
     retrieved_chunks = rag_pipeline.retrieve_context(
         question=question,
         top_k=request.top_k,
@@ -285,6 +286,8 @@ def test_answer_generation(request: TestAnswerRequest):
             status_code=404,
             detail="No relevant document chunks found. Upload a document first.",
         )
+
+    from app.llm_client import llm_client
 
     answer = llm_client.generate_answer(
         question=question,
@@ -299,10 +302,10 @@ def test_answer_generation(request: TestAnswerRequest):
 
 
 if settings.ENABLE_TEST_ANSWER_ROUTE:
-    app.post("/test-answer", response_model=TestAnswerResponse)(test_answer_generation)
+    app.post("/test-answer", dependencies=[Depends(require_admin)], response_model=TestAnswerResponse)(test_answer_generation)
 
 
-@app.post("/ask", response_model=AskResponse)
+@app.post("/ask", dependencies=[Depends(require_user)], response_model=AskResponse)
 def ask_question(request: AskRequest):
     """
     Main production RAG chatbot endpoint.
@@ -322,6 +325,8 @@ def ask_question(request: AskRequest):
             detail="Question cannot be empty.",
         )
 
+    from app.rag_pipeline import rag_pipeline
+
     retrieved_chunks = rag_pipeline.retrieve_context(
         question=question,
         top_k=request.top_k,
@@ -333,6 +338,8 @@ def ask_question(request: AskRequest):
             answer="The uploaded documents do not contain enough information to answer that question.",
             sources=[],
         )
+
+    from app.llm_client import llm_client
 
     answer = llm_client.generate_answer(
         question=question,
@@ -346,3 +353,32 @@ def ask_question(request: AskRequest):
         answer=answer,
         sources=sources,
     )
+
+# Explicit inventory: new routes must be classified and carry the expected guard.
+ROUTE_POLICY = {
+    ("GET", "/"): None, ("GET", "/health"): None,
+    ("GET", "/documents"): require_user,
+    ("POST", "/search"): require_user, ("POST", "/ask"): require_user,
+    ("POST", "/upload-document"): require_admin,
+    ("DELETE", "/documents/{document_id}"): require_admin,
+    ("POST", "/test-answer"): require_admin,
+    ("GET", "/whatsapp/webhook"): require_admin,
+    ("POST", "/whatsapp/webhook"): require_admin,
+    ("POST", "/whatsapp/send-test"): require_admin,
+}
+
+
+def validate_route_policy():
+    for route in app.routes:
+        for method in route.methods:
+            key = (method, route.path)
+            if key not in ROUTE_POLICY:
+                raise RuntimeError("Unclassified API route")
+            guard = ROUTE_POLICY[key]
+            if guard is not None and not any(
+                dependency.call is guard for dependency in route.dependant.dependencies
+            ):
+                raise RuntimeError("Missing API authorization dependency")
+
+
+validate_route_policy()
