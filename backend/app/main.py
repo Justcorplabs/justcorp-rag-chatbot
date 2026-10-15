@@ -12,7 +12,6 @@ from app.embeddings import embedding_model
 from app.vector_store import vector_store
 from app.rag_pipeline import rag_pipeline
 from app.llm_client import llm_client
-from app.whatsapp_webhook import router as whatsapp_router
 from app.models import (
     DocumentUploadResponse,
     DocumentsListResponse,
@@ -46,7 +45,10 @@ app.add_middleware(
 )
 
 
-app.include_router(whatsapp_router)
+if settings.ENABLE_WHATSAPP_ROUTES:
+    from app.whatsapp_webhook import router as whatsapp_router
+
+    app.include_router(whatsapp_router)
 
 
 UPLOAD_DIR = Path(settings.UPLOAD_DIR)
@@ -259,7 +261,6 @@ def search_documents(request: SearchRequest):
     )
 
 
-@app.post("/test-answer", response_model=TestAnswerResponse)
 def test_answer_generation(request: TestAnswerRequest):
     """
     Debug endpoint for Groq answer generation.
@@ -295,6 +296,10 @@ def test_answer_generation(request: TestAnswerRequest):
         answer=answer,
         sources=build_sources(retrieved_chunks),
     )
+
+
+if settings.ENABLE_TEST_ANSWER_ROUTE:
+    app.post("/test-answer", response_model=TestAnswerResponse)(test_answer_generation)
 
 
 @app.post("/ask", response_model=AskResponse)

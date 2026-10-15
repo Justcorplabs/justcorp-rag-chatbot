@@ -147,6 +147,30 @@ http://127.0.0.1:8000/docs
 
 ## Main Endpoints
 
+Optional routes are disabled by default:
+
+- `ENABLE_WHATSAPP_ROUTES=false` controls GET/POST `/whatsapp/webhook` and POST `/whatsapp/send-test`.
+- `ENABLE_TEST_ANSWER_ROUTE=false` controls POST `/test-answer`.
+
+Only `true` (case insensitive, surrounding whitespace allowed) enables a flag.
+Missing, empty, false, 0, and unrecognized values keep it disabled. Flags are
+read at startup; restart the backend after changing them. Disabled routes return
+404 and are excluded from OpenAPI. With WhatsApp disabled, its modules are not
+imported and its credentials are not required.
+
+Both WhatsApp routes and the /test-answer debugging endpoint must remain disabled in public deployments until their respective authentication, authorization, and security controls have been implemented and independently verified.
+These flags do not add authentication or secure the optional endpoints.
+
+Run isolated route tests from the repository root with the backend environment:
+
+```powershell
+.\backend\.venv\Scripts\python.exe -B -m unittest discover -s backend/tests -v
+```
+
+Tests use temporary storage and mocked providers; no Groq or Meta calls are made.
+They require FastAPI's test client dependency `httpx`, declared in
+`requirements-test.txt`, in the test environment.
+
 ### Health Check
 
 ```http
