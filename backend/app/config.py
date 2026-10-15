@@ -24,6 +24,10 @@ class Settings:
 
     FRONTEND_ORIGIN: str = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
 
+    # Fail closed: only an explicit true (case insensitive) enables routes.
+    ENABLE_WHATSAPP_ROUTES: bool = os.getenv("ENABLE_WHATSAPP_ROUTES", "false").strip().lower() == "true"
+    ENABLE_TEST_ANSWER_ROUTE: bool = os.getenv("ENABLE_TEST_ANSWER_ROUTE", "false").strip().lower() == "true"
+
     # WhatsApp Cloud API settings
     WHATSAPP_ACCESS_TOKEN: str = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
     WHATSAPP_PHONE_NUMBER_ID: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")

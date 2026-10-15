@@ -1,0 +1,2 @@
+# Install alongside requirements.txt in a test environment.
+httpx
