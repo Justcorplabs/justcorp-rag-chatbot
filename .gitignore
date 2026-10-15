@@ -48,3 +48,31 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+# Private environment variants and backups (examples remain trackable)
+.env.*
+*.env
+*.env.*
+!.env.example
+!**/.env.example
+!*.env.example
+!.env.*.example
+
+# Private keys, credential bundles, and local credential stores
+*private*.pem
+*PRIVATE*.pem
+*Private*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+!id_rsa*.pub
+!id_ed25519*.pub
+credentials.json
+service-account*.json
+service_account*.json
+.aws/
+.secrets/
+secrets/
