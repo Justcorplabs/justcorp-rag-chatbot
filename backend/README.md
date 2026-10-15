@@ -210,6 +210,93 @@ Version 1 supports PDF files first.
 TXT, DOCX, OCR, and website ingestion can be added later.
 
 
+## SEC03-02A PostgreSQL configuration foundation
+
+Development uses local PostgreSQL under the USD 0/month policy. No PostgreSQL,
+Docker, packages, or managed services are installed by this change. Managed hosting
+and identity providers remain deferred. Render remains suspended. Authentication
+is still deliberately locked out; no database connection, engine, session, schema,
+or migration is created. Existing application configuration is unchanged.
+
+`app.database_config.load_database_settings()` reads backend process environment
+only, on demand. Importing the module does nothing. Missing or invalid settings
+raise `DatabaseConfigurationError` when explicitly validated, while public health
+remains available. Every future database-dependent authentication operation must
+validate through this function before database access; no such operation exists yet.
+The loader does not discover `.env` files: a future backend entry point must load
+the intended backend environment before calling it. Never use frontend `VITE_`
+variables for database configuration.
+
+| Variable | Default / validation |
+| --- | --- |
+| `DATABASE_ENVIRONMENT` | `development`; exactly `development`, `test`, or `production` |
+| `DATABASE_URL` | Empty; required on validation, `postgresql+psycopg` only, explicit host, user and database |
+| `DATABASE_SSLMODE` | `verify-full`; only `verify-full` or explicit local development/test `disable` |
+| `DATABASE_SSLROOTCERT` | Empty; readable, nonempty absolute CA file required for `verify-full` |
+| `DATABASE_CONNECT_TIMEOUT` | 5 seconds; integer 1–30 |
+| `DATABASE_POOL_SIZE` | 2; integer 1–5; future engine must use `max_overflow=0` |
+| `DATABASE_POOL_TIMEOUT` | 5 seconds; integer 1–30 for future pool acquisition |
+
+Placeholder URI: `postgresql+psycopg://your_user_here@localhost:5432/knowledge_hub`.
+Set credentials privately when local persistence is implemented; percent-encode
+reserved characters. URI query strings and fragments are rejected to prevent
+driver, TLS, host, and timeout overrides. Database names are restricted to ASCII
+letters, digits, underscores and hyphens. Plain `postgresql://` is rejected because
+it does not explicitly select Psycopg 3. Local plaintext requires an explicit
+`DATABASE_SSLMODE=disable` and literal `localhost`, `127.0.0.1`, or `::1` host.
+
+Production always requires `verify-full` plus the CA file: the future driver must
+verify both the certificate chain and hostname and pass these settings explicitly.
+The validator checks file availability, not certificate authenticity or server
+identity; those require an actual TLS handshake in a later task. Future engine
+integration must also pass both timeout values, bound the pool, and avoid logging
+connection arguments. Errors and settings representations redact supplied values;
+`settings.uri` now contains immutable validated components, with redacted
+`str`/`repr`, rather than the original input string. Future SQLAlchemy integration
+must pass its decoded fields directly to `URL.create(drivername=..., username=...,
+password=..., host=..., port=..., database=...)`; do not decode again or reparse a
+string. Explicit `render_as_string(hide_password=False)` exports a sensitive URI
+with percent-encoded credentials; default rendering hides the password. Individual
+credential attributes and dataclass serialization remain sensitive.
+
+Validated database configuration contains sensitive credential fields. The settings
+object and SQLAlchemy URLs must only be handled by trusted backend code. Direct
+field access, dataclass serialization (such as dataclasses.asdict()), and
+unredacted URL rendering may disclose credentials. Database URLs and passwords
+must never be written to logs, responses, frontend variables, or exception
+messages. Use redacted representations for diagnostics.
+
+The hygiene scanner retains its original configuration limits, with a bounded
+2,048 punctuation / 4,096 token allowance for this larger database module only;
+its 64 Ki character limit and fail-closed parser handling remain in force.
+
+FIX01 uses a conservative grammar reviewed against SQLAlchemy 2.0.44's
+[`_parse_url` source](https://github.com/sqlalchemy/sqlalchemy/blob/rel_2_0_44/lib/sqlalchemy/engine/url.py).
+Only lowercase literal schemes and DNS hosts, canonical bracketed IPv6, explicit
+nonempty decimal ports (1-65535, no leading zeros), and unreserved or correctly
+percent-encoded credential characters are accepted. Credentials are decoded once
+with strict UTF-8 and control characters rejected. Extra unescaped `@`, malformed
+escapes, queries and fragments fail closed. Local plaintext eligibility uses the
+validated host component. SQLAlchemy 2.0.44 was installed locally for development
+testing, and offline URL.create() compatibility tests passed. These checks do not
+establish that all production dependencies are installed or that a database
+connection has been tested; runtime driver integration remains untested. The tester's literal ambiguous URI
+was not supplied; regressions cover multiple extra-`@` authority variants.
+
+Optional dependencies are isolated in `requirements-database.txt`:
+`SQLAlchemy==2.0.44`, `psycopg[binary]==3.2.10`, `alembic==1.16.5`.
+The binary extra avoids requiring a locally installed libpq for a future approved
+Windows development installation. These releases support the inspected Python
+3.13 environment (Alembic requires Python 3.9+); no existing runtime requirements
+are changed. Direct versions are pinned; this is not a fully locked transitive
+environment. Driver wheel availability and combined dependency resolution with
+FastAPI/Pydantic and the existing unpinned backend requirements must be verified
+in an independently approved installation. None of these packages is needed for
+the stdlib-only configuration tests. No packages were installed for this task.
+
+Run configuration tests from the repository root:
+`backend\.venv\Scripts\python.exe -B -m unittest discover -s backend/tests -p test_database_config.py -v`.
+
 ## SEC03-01 access boundary
 
 Production intentionally denies every protected request with 401. There is no
