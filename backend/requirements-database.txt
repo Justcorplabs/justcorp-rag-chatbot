@@ -1,0 +1,4 @@
+# Optional foundation; install only after approval. Existing runtime is unchanged.
+SQLAlchemy==2.0.44
+psycopg[binary]==3.2.10
+alembic==1.16.5

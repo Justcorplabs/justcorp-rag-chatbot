@@ -66,13 +66,13 @@ def safe_public_pem(content):
     return bool(position)
 
 
-def parse_config(content):
+def parse_config(content, *, database_module=False):
     # Bound input and grammar punctuation before parsing: even unary chains
     # can exhaust CPython's parser before an AST can be inspected.
     if (len(content) > MAX_CONFIG_CHARS or
             sum(not (c.isalnum() or c.isspace() or c == '_') for c in content)
-            > MAX_CONFIG_PUNCTUATION or
-            sum(1 for _ in re.finditer(r'\w+|[^\w\s]', content)) > MAX_CONFIG_TOKENS):
+            > (2048 if database_module else MAX_CONFIG_PUNCTUATION) or
+            sum(1 for _ in re.finditer(r'\w+|[^\w\s]', content)) > (4096 if database_module else MAX_CONFIG_TOKENS)):
         raise CheckFailure('configuration: parsing complexity limit exceeded')
     try:
         return ast.parse(content)
@@ -175,6 +175,22 @@ def scan(root):
                 and isinstance(node.args[0], ast.Constant)
                 and isinstance(node.args[0].value, str)
             }
+            database_name = 'backend/app/database_config.py'
+            if (root / database_name).exists():
+                database_config = parse_config(read_text(root, database_name), database_module=True)
+                backend_keys.update(
+                    node.args[0].value for node in ast.walk(database_config)
+                    if isinstance(node, ast.Call) and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                    and node.args[0].value.startswith('DATABASE_')
+                    and (
+                        (isinstance(node.func, ast.Attribute)
+                         and isinstance(node.func.value, ast.Name)
+                         and node.func.value.id == 'env' and node.func.attr == 'get')
+                        or (isinstance(node.func, ast.Name) and node.func.id == 'integer')
+                    )
+                )
             for name, expected in [('backend/.env.example', backend_keys),
                                    ('frontend/.env.example', {'VITE_API_BASE_URL'})]:
                 content = read_text(root, name)
@@ -219,6 +235,11 @@ def self_test():
             sentinel = 'SYNTHETIC_' + 'SENTINEL_92837465'
             cases = [
                 ('clean', None, None, 0),
+                ('database-config', 'backend/app/database_config.py',
+                 'value = env.get("DATABASE_URL", "")\nsize = integer("DATABASE_POOL_SIZE", 2, 5)\n', 0),
+                ('database-config-excessive', 'backend/app/database_config.py', 'x=' + '-' * 4097 + '1', 1),
+                ('database-config-invalid', 'backend/app/database_config.py', 'x=(', 1),
+                ('database-example-unknown', 'backend/.env.example', 'TOKEN=\nDATABASE_UNKNOWN=\n', 1),
                 ('scanner-self-inclusion', 'scripts/check_secret_hygiene.py', Path(__file__).read_bytes(), 0),
                 ('filename-signature', sentinel + '.txt', 'gsk_' + 'A' * 24, 1),
                 ('filename-private', sentinel + '.key', 'public', 1),
@@ -282,6 +303,8 @@ def self_test():
                     write('frontend/.env.example', 'VITE_API_BASE_URL=http://localhost:8000\n')
                     if target:
                         write(target, value if value is not None else 'public')
+                    if label == 'database-config':
+                        write('backend/.env.example', 'TOKEN=\nDATABASE_URL=\nDATABASE_POOL_SIZE=2\n')
                     for args in [('init', '-q'), ('add', '.')]:
                         if git(root, *args).returncode:
                             self.fail('synthetic repository setup failed')
