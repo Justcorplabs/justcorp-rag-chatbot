@@ -70,7 +70,10 @@ def application(whatsapp=None, answer=None):
                     patch("builtins.__import__", side_effect=guarded_import):
                 main = importlib.import_module("app.main")
                 with TestClient(main.app) as client:
-                    yield client, services, imports, main
+                    try:
+                        yield client, services, imports, main
+                    finally:
+                        main.app.dependency_overrides.clear()
     finally:
         for name in list(sys.modules):
             if name == "app" or name.startswith("app."):
@@ -83,7 +86,7 @@ class OptionalRoutesTests(unittest.TestCase):
         with application(whatsapp, answer) as (client, services, imports, main):
             enabled = (main.settings.ENABLE_WHATSAPP_ROUTES,
                        main.settings.ENABLE_TEST_ANSWER_ROUTE)
-            schema = client.get("/openapi.json").json()
+            schema = main.app.openapi()
             paths = schema["paths"]
             for path, method in NORMAL.items():
                 self.assertIn(method, paths[path])
@@ -125,6 +128,8 @@ class OptionalRoutesTests(unittest.TestCase):
 
     def test_enabled_handlers_with_mocked_providers(self):
         with application("true", "true") as (client, services, _, main):
+            from app.auth import Principal, resolve_verified_principal
+            main.app.dependency_overrides[resolve_verified_principal] = lambda: Principal("fixture", True, "admin")
             chunk = dict(document_id="fixture", filename="fixture.pdf", chunk_number=1,
                          distance=0.1, text="Fixture context")
             services["rag_pipeline"].retrieve_context.return_value = [chunk]

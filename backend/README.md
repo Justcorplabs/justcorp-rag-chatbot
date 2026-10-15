@@ -18,7 +18,7 @@ This backend powers the AI Knowledge Base Chatbot. It handles document upload, P
 - Semantic retrieval
 - Groq LLM answer generation
 - Source-aware responses
-- FastAPI Swagger documentation
+- Explicit route authorization; public API documentation disabled
 
 ## Tech Stack
 
@@ -139,11 +139,7 @@ Backend URL:
 http://127.0.0.1:8000
 ```
 
-Swagger docs:
-
-```text
-http://127.0.0.1:8000/docs
-```
+Swagger, ReDoc, and OpenAPI endpoints are disabled (404).
 
 ## Main Endpoints
 
@@ -159,7 +155,7 @@ read at startup; restart the backend after changing them. Disabled routes return
 imported and its credentials are not required.
 
 Both WhatsApp routes and the /test-answer debugging endpoint must remain disabled in public deployments until their respective authentication, authorization, and security controls have been implemented and independently verified.
-These flags do not add authentication or secure the optional endpoints.
+Enabled optional routes require administrator authorization; flags never bypass authorization.
 
 Run isolated route tests from the repository root with the backend environment:
 
@@ -212,3 +208,52 @@ POST /ask
 Version 1 supports PDF files first.
 
 TXT, DOCX, OCR, and website ingestion can be added later.
+
+
+## SEC03-01 access boundary
+
+Production intentionally denies every protected request with 401. There is no
+functional login, session verification, token issuance, shared API key, or
+authentication-disable flag. Headers, cookies, query parameters, request bodies,
+and frontend roles cannot establish identity. Do not release this phase to
+production as a functioning authenticated product. Verified session infrastructure
+and independent security verification are required before production release.
+
+| Method | Path | Access |
+| --- | --- | --- |
+| GET | `/`, `/health` | Public, minimal status only |
+| GET | `/documents` | Active verified member or administrator |
+| POST | `/search`, `/ask` | Active verified member or administrator |
+| POST | `/upload-document` | Active verified administrator |
+| DELETE | `/documents/{document_id}` | Active verified administrator |
+| POST | `/test-answer` | Administrator, only when explicitly enabled |
+| GET, POST | `/whatsapp/webhook` | Administrator, only when explicitly enabled |
+| POST | `/whatsapp/send-test` | Administrator, only when explicitly enabled |
+
+Missing or malformed verified identity receives 401; inactive identities and
+members attempting administrator operations receive 403. Disabled optional
+routes and documentation endpoints receive 404. Authorized handlers retain their
+existing validation and missing-document responses. Invalid request syntax can
+be rejected by FastAPI before authorization, so 401 is not guaranteed for every
+malformed HTTP body.
+
+The immutable internal Principal requires a nonempty identifier, an explicit
+boolean active status, and exactly `member` or `admin`. Tests alone override
+`resolve_verified_principal` through FastAPI dependency overrides, using synthetic
+principals, temporary storage, and mocked providers. Overrides are cleared after
+use; the production resolver then rejects again. Never configure such overrides
+in deployment code.
+
+Service imports occur inside protected handlers. Startup, public health, and
+denied requests do not initialize Groq or document storage, perform retrieval,
+embeddings, PDF extraction, LLM generation, application upload-file creation, or
+WhatsApp messaging. FastAPI may parse request bodies before dependencies execute:
+this protection does not prevent framework multipart buffering or temporary-file
+spooling. Request-size and ingress resource controls remain separate work.
+
+WhatsApp remains default-disabled and quarantined behind administrator checks,
+including webhook verification. Meta cannot complete a normal webhook workflow
+in this phase. A webhook verification token is not application authentication.
+The debug route also remains default-disabled. Startup validates every registered
+route against an explicit policy inventory and rejects missing guards or unknown
+routes. Any future route additions must update and test that inventory.
