@@ -291,8 +291,12 @@ Windows development installation. These releases support the inspected Python
 are changed. Direct versions are pinned; this is not a fully locked transitive
 environment. Driver wheel availability and combined dependency resolution with
 FastAPI/Pydantic and the existing unpinned backend requirements must be verified
-in an independently approved installation. None of these packages is needed for
-the stdlib-only configuration tests. No packages were installed for this task.
+in an independently approved installation. The configuration module itself uses
+only the Python standard library. The configuration test module imports existing
+FastAPI/httpx-based route fixtures, so running the test module requires those
+test dependencies. SQLAlchemy URL compatibility tests are skipped when SQLAlchemy
+is unavailable or its installed version is not the expected 2.0.44; source-contract
+checks still run. No packages were installed for this task.
 
 Run configuration tests from the repository root:
 `backend\.venv\Scripts\python.exe -B -m unittest discover -s backend/tests -p test_database_config.py -v`.
